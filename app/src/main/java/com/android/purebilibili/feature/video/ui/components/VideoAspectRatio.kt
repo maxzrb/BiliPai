@@ -108,6 +108,59 @@ internal fun resolveVideoViewportLayout(
 }
 
 /**
+ * 为直接绘制到 GL Surface 的视频计算内容视口。
+ * PlayerView 会在内部处理 FIT/ZOOM，GL 输出必须显式保持源视频比例。
+ */
+internal fun resolveVideoContentViewportLayout(
+    containerWidth: Int,
+    containerHeight: Int,
+    sourceWidth: Int,
+    sourceHeight: Int,
+    sourcePixelWidthHeightRatio: Float = 1f,
+    aspectRatio: VideoAspectRatio
+): VideoViewportLayout {
+    val safeContainerWidth = containerWidth.coerceAtLeast(1)
+    val safeContainerHeight = containerHeight.coerceAtLeast(1)
+    if (aspectRatio == VideoAspectRatio.STRETCH) {
+        return VideoViewportLayout(safeContainerWidth, safeContainerHeight)
+    }
+
+    val frame = resolveVideoViewportLayout(
+        containerWidth = safeContainerWidth,
+        containerHeight = safeContainerHeight,
+        aspectRatio = aspectRatio
+    )
+    val safePixelRatio = sourcePixelWidthHeightRatio
+        .takeIf { it.isFinite() && it > 0f }
+        ?: 1f
+    val sourceAspectRatio = if (sourceWidth > 0 && sourceHeight > 0) {
+        sourceWidth.toFloat() * safePixelRatio / sourceHeight.toFloat()
+    } else {
+        null
+    }?.takeIf { it.isFinite() && it > 0f }
+        ?: return frame
+
+    val shouldCover = aspectRatio == VideoAspectRatio.FILL
+    val frameAspectRatio = frame.width.toFloat() / frame.height.toFloat()
+    val useFrameHeight = if (shouldCover) {
+        frameAspectRatio <= sourceAspectRatio
+    } else {
+        frameAspectRatio >= sourceAspectRatio
+    }
+    return if (useFrameHeight) {
+        VideoViewportLayout(
+            width = (frame.height * sourceAspectRatio).roundToInt().coerceAtLeast(1),
+            height = frame.height
+        )
+    } else {
+        VideoViewportLayout(
+            width = frame.width,
+            height = (frame.width / sourceAspectRatio).roundToInt().coerceAtLeast(1)
+        )
+    }
+}
+
+/**
  * 视频比例选择菜单
  */
 @Composable
