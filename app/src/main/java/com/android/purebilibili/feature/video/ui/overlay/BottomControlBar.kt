@@ -60,6 +60,7 @@ import com.android.purebilibili.feature.video.subtitle.SubtitleTrackOption
 import com.android.purebilibili.feature.video.subtitle.resolveSubtitleDisplayOptions
 import com.android.purebilibili.feature.video.playback.policy.resolveDisplayedPlaybackTransitionPosition
 import com.android.purebilibili.core.store.PlayerProgressPlacement
+import com.android.purebilibili.feature.anime4k.Anime4KPreset
 import kotlin.math.roundToInt
 
 /**
@@ -240,14 +241,16 @@ internal fun shouldShowMoreActionsButtonInControlBar(
     showNextEpisodeButton: Boolean,
     showPlaybackOrderLabel: Boolean,
     showAspectRatioButton: Boolean,
-    showPortraitSwitchButton: Boolean
+    showPortraitSwitchButton: Boolean,
+    showAnime4KToggle: Boolean = false
 ): Boolean {
     return isFullscreen && (
         showEpisodeInMoreActions ||
             showNextEpisodeButton ||
             showPlaybackOrderLabel ||
             showAspectRatioButton ||
-            showPortraitSwitchButton
+            showPortraitSwitchButton ||
+            showAnime4KToggle
         )
 }
 
@@ -361,6 +364,9 @@ fun BottomControlBar(
     isLoggedIn: Boolean = true,
     subtitleControlState: SubtitleControlUiState = SubtitleControlUiState(),
     subtitleControlCallbacks: SubtitleControlCallbacks = SubtitleControlCallbacks(),
+    anime4kEnabled: Boolean = false,
+    anime4kAvailable: Boolean = false,
+    onAnime4kToggle: (Boolean) -> Unit = {},
     
     // Quality
     currentQualityLabel: String = "",
@@ -526,7 +532,8 @@ fun BottomControlBar(
         showNextEpisodeButton,
         showPlaybackOrderLabel,
         showAspectRatioButton,
-        showPortraitSwitchButton
+        showPortraitSwitchButton,
+        anime4kAvailable
     ) {
         shouldShowMoreActionsButtonInControlBar(
             isFullscreen = isFullscreen,
@@ -534,7 +541,8 @@ fun BottomControlBar(
             showNextEpisodeButton = showNextEpisodeButton,
             showPlaybackOrderLabel = showPlaybackOrderLabel,
             showAspectRatioButton = showAspectRatioButton,
-            showPortraitSwitchButton = showPortraitSwitchButton
+            showPortraitSwitchButton = showPortraitSwitchButton,
+            showAnime4KToggle = anime4kAvailable
         )
     }
     val shouldConsumeFloatingPanelBackground = remember(showSubtitlePanel, showMoreActionsPanel) {
@@ -1041,6 +1049,13 @@ fun BottomControlBar(
                             }
                         )
                     }
+                    if (anime4kAvailable) {
+                        MoreActionToggle(
+                            label = "Anime4K",
+                            checked = anime4kEnabled,
+                            onCheckedChange = onAnime4kToggle
+                        )
+                    }
                     if (
                         com.android.purebilibili.feature.video.ui.components.shouldShowDanmakuSendInMoreActions(
                             isFullscreen = isFullscreen,
@@ -1147,6 +1162,28 @@ private fun MoreActionTextButton(
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp)
     )
+}
+
+@Composable
+private fun MoreActionToggle(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            modifier = Modifier.height(32.dp)
+        )
+    }
 }
 
 /**
