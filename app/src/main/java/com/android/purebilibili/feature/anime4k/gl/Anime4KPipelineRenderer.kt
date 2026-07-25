@@ -165,11 +165,11 @@ internal class Anime4KPipelineRenderer(
         if (luma != null) {
             drawLuminance(color, luma)
         }
-        drawPush(color, luma ?: color, push, luma != null)
+        drawPush(color, luma ?: color, push, luma != null, profile)
         if (gradient != null) {
             drawGradient(push, gradient)
         }
-        drawRefine(push, gradient, profile.sharpenStrength)
+        drawRefine(push, gradient, profile)
     }
 
     private fun drawExternal(target: FboTarget) {
@@ -188,13 +188,21 @@ internal class Anime4KPipelineRenderer(
         QuadRenderUtils.draw(lumaProgram)
     }
 
-    private fun drawPush(color: FboTarget, luma: FboTarget, target: FboTarget, usesLuma: Boolean) {
+    private fun drawPush(
+        color: FboTarget,
+        luma: FboTarget,
+        target: FboTarget,
+        usesLuma: Boolean,
+        profile: com.android.purebilibili.feature.anime4k.Anime4KRenderProfile
+    ) {
         bindTarget(target)
         GLES30.glUseProgram(pushProgram)
         bindTexture(pushProgram, "uColor", GLES30.GL_TEXTURE_2D, color.texture, 0)
         bindTexture(pushProgram, "uLuma", GLES30.GL_TEXTURE_2D, luma.texture, 1)
         setVec2(pushProgram, "uTexelSize", 1f / color.width, 1f / color.height)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(pushProgram, "uUseLuma"), if (usesLuma) 1 else 0)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(pushProgram, "uPushStrength"), profile.pushStrength)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(pushProgram, "uEdgeThreshold"), profile.edgeThreshold)
         setVertexUniforms(pushProgram, identityMatrix, false, false)
         QuadRenderUtils.draw(pushProgram)
     }
@@ -208,14 +216,20 @@ internal class Anime4KPipelineRenderer(
         QuadRenderUtils.draw(gradientProgram)
     }
 
-    private fun drawRefine(color: FboTarget, gradient: FboTarget?, strength: Float) {
+    private fun drawRefine(
+        color: FboTarget,
+        gradient: FboTarget?,
+        profile: com.android.purebilibili.feature.anime4k.Anime4KRenderProfile
+    ) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
         GLES30.glViewport(0, 0, outputWidth, outputHeight)
         GLES30.glUseProgram(refineProgram)
         bindTexture(refineProgram, "uColor", GLES30.GL_TEXTURE_2D, color.texture, 0)
         bindTexture(refineProgram, "uGradient", GLES30.GL_TEXTURE_2D, (gradient ?: color).texture, 1)
         setVec2(refineProgram, "uTexelSize", 1f / color.width, 1f / color.height)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(refineProgram, "uStrength"), strength)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(refineProgram, "uStrength"), profile.sharpenStrength)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(refineProgram, "uEdgeThreshold"), profile.edgeThreshold)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(refineProgram, "uDetailClamp"), profile.detailClamp)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(refineProgram, "uUseGradient"), if (gradient != null) 1 else 0)
         setVertexUniforms(refineProgram, identityMatrix, false, false)
         QuadRenderUtils.draw(refineProgram)

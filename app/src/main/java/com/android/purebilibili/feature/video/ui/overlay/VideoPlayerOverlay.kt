@@ -1390,7 +1390,9 @@ fun VideoPlayerOverlay(
                     subtitleControlCallbacks = subtitleControlCallbacks,
                     anime4kEnabled = anime4kEnabled,
                     anime4kAvailable = anime4kAvailable,
+                    anime4kPreset = anime4kPreset,
                     onAnime4kToggle = onAnime4kToggle,
+                    onAnime4kPresetChange = onAnime4kPresetChange,
                     currentQualityLabel = currentQualityLabel,
                     onQualityClick = { showQualityMenu = true },
                     // 🖼️ [新增] 视频预览图数据

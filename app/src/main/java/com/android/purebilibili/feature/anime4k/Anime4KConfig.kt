@@ -16,6 +16,15 @@ enum class Anime4KPreset {
     QUALITY
 }
 
+/** 面向播放页展示的增强强度名称。 */
+fun resolveAnime4KPresetLabel(preset: Anime4KPreset): String {
+    return when (preset) {
+        Anime4KPreset.FAST -> "效率"
+        Anime4KPreset.BALANCED -> "增强"
+        Anime4KPreset.QUALITY -> "强力"
+    }
+}
+
 fun Anime4KPreset.lowerPerformancePreset(): Anime4KPreset? {
     return when (this) {
         Anime4KPreset.QUALITY -> Anime4KPreset.BALANCED
@@ -30,25 +39,34 @@ data class Anime4KRenderProfile(
     val maxLongEdgePx: Int,
     val usesLuminancePass: Boolean,
     val usesGradientPass: Boolean,
-    val sharpenStrength: Float
+    val pushStrength: Float,
+    val sharpenStrength: Float,
+    val edgeThreshold: Float,
+    val detailClamp: Float
 )
 
 fun resolveAnime4KRenderProfile(preset: Anime4KPreset): Anime4KRenderProfile {
     return when (preset) {
         Anime4KPreset.FAST -> Anime4KRenderProfile(
-            internalScale = 0.5f,
+            internalScale = 0.6f,
             maxLongEdgePx = 1080,
             usesLuminancePass = false,
             usesGradientPass = false,
-            sharpenStrength = 0.35f
+            pushStrength = 0.45f,
+            sharpenStrength = 0.7f,
+            edgeThreshold = 0.035f,
+            detailClamp = 0.1f
         )
 
         Anime4KPreset.BALANCED -> Anime4KRenderProfile(
-            internalScale = 0.75f,
+            internalScale = 0.85f,
             maxLongEdgePx = 1440,
             usesLuminancePass = true,
-            usesGradientPass = false,
-            sharpenStrength = 0.5f
+            usesGradientPass = true,
+            pushStrength = 0.7f,
+            sharpenStrength = 1.1f,
+            edgeThreshold = 0.018f,
+            detailClamp = 0.18f
         )
 
         Anime4KPreset.QUALITY -> Anime4KRenderProfile(
@@ -56,7 +74,10 @@ fun resolveAnime4KRenderProfile(preset: Anime4KPreset): Anime4KRenderProfile {
             maxLongEdgePx = 2160,
             usesLuminancePass = true,
             usesGradientPass = true,
-            sharpenStrength = 0.68f
+            pushStrength = 1.05f,
+            sharpenStrength = 1.45f,
+            edgeThreshold = 0.012f,
+            detailClamp = 0.24f
         )
     }
 }

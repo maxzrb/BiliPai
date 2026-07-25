@@ -20,6 +20,7 @@ import com.android.purebilibili.core.plugin.PluginStore
 import com.android.purebilibili.core.util.Logger
 import com.android.purebilibili.feature.anime4k.Anime4KConfig
 import com.android.purebilibili.feature.anime4k.Anime4KPreset
+import com.android.purebilibili.feature.anime4k.resolveAnime4KPresetLabel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -94,9 +95,9 @@ class Anime4KPlugin : Plugin {
         val configSnapshot by configState.collectAsStateWithLifecycle()
         val options = remember {
             listOf(
-                Anime4KPreset.FAST to "快速",
-                Anime4KPreset.BALANCED to "均衡",
-                Anime4KPreset.QUALITY to "质量"
+                Anime4KPreset.FAST,
+                Anime4KPreset.BALANCED,
+                Anime4KPreset.QUALITY
             )
         }
         Column(
@@ -105,17 +106,17 @@ class Anime4KPlugin : Plugin {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("渲染预设", style = MaterialTheme.typography.titleSmall)
+            Text("增强强度", style = MaterialTheme.typography.titleSmall)
             Text(
                 text = "HDR、杜比视界、小窗和后台播放会自动使用原始视频输出。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            options.forEach { (preset, label) ->
+            options.forEach { preset ->
                 FilterChip(
                     selected = configSnapshot.preset == preset,
                     onClick = { setPreset(preset) },
-                    label = { Text(label) }
+                    label = { Text(resolveAnime4KPresetLabel(preset)) }
                 )
             }
         }

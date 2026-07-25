@@ -61,6 +61,7 @@ import com.android.purebilibili.feature.video.subtitle.resolveSubtitleDisplayOpt
 import com.android.purebilibili.feature.video.playback.policy.resolveDisplayedPlaybackTransitionPosition
 import com.android.purebilibili.core.store.PlayerProgressPlacement
 import com.android.purebilibili.feature.anime4k.Anime4KPreset
+import com.android.purebilibili.feature.anime4k.resolveAnime4KPresetLabel
 import kotlin.math.roundToInt
 
 /**
@@ -366,7 +367,9 @@ fun BottomControlBar(
     subtitleControlCallbacks: SubtitleControlCallbacks = SubtitleControlCallbacks(),
     anime4kEnabled: Boolean = false,
     anime4kAvailable: Boolean = false,
+    anime4kPreset: Anime4KPreset = Anime4KPreset.BALANCED,
     onAnime4kToggle: (Boolean) -> Unit = {},
+    onAnime4kPresetChange: (Anime4KPreset) -> Unit = {},
     
     // Quality
     currentQualityLabel: String = "",
@@ -1050,10 +1053,12 @@ fun BottomControlBar(
                         )
                     }
                     if (anime4kAvailable) {
-                        MoreActionToggle(
-                            label = "Anime4K",
-                            checked = anime4kEnabled,
-                            onCheckedChange = onAnime4kToggle
+                        Anime4KMoreAction(
+                            enabled = anime4kEnabled,
+                            preset = anime4kPreset,
+                            minWidthDp = floatingPanelMinWidthDp,
+                            onCheckedChange = onAnime4kToggle,
+                            onPresetChange = onAnime4kPresetChange
                         )
                     }
                     if (
@@ -1165,23 +1170,83 @@ private fun MoreActionTextButton(
 }
 
 @Composable
-private fun MoreActionToggle(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+private fun Anime4KMoreAction(
+    enabled: Boolean,
+    preset: Anime4KPreset,
+    minWidthDp: Int,
+    onCheckedChange: (Boolean) -> Unit,
+    onPresetChange: (Anime4KPreset) -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .widthIn(min = minWidthDp.dp)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            modifier = Modifier.height(32.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Anime4K", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    text = if (enabled) "强度：${resolveAnime4KPresetLabel(preset)}" else "实时超分辨率",
+                    color = Color.White.copy(alpha = 0.68f),
+                    fontSize = 11.sp
+                )
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = onCheckedChange
+            )
+        }
+        AnimatedVisibility(visible = enabled) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                listOf(
+                    Anime4KPreset.FAST,
+                    Anime4KPreset.BALANCED,
+                    Anime4KPreset.QUALITY
+                ).forEach { option ->
+                    Anime4KIntensityOption(
+                        label = resolveAnime4KPresetLabel(option),
+                        selected = preset == option,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onPresetChange(option) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Anime4KIntensityOption(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.1f)
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.86f),
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            maxLines = 1
         )
     }
 }

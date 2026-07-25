@@ -12,10 +12,22 @@ class Anime4KOutputPolicyTest {
     fun balancedProfile_usesExpectedPassesAndBudget() {
         val profile = resolveAnime4KRenderProfile(Anime4KPreset.BALANCED)
 
-        assertEquals(0.75f, profile.internalScale)
+        assertEquals(0.85f, profile.internalScale)
         assertEquals(1440, profile.maxLongEdgePx)
         assertTrue(profile.usesLuminancePass)
-        assertFalse(profile.usesGradientPass)
+        assertTrue(profile.usesGradientPass)
+        assertEquals(0.7f, profile.pushStrength)
+        assertEquals(1.1f, profile.sharpenStrength)
+    }
+
+    @Test
+    fun qualityProfile_usesTheStrongestDetailEnhancement() {
+        val balanced = resolveAnime4KRenderProfile(Anime4KPreset.BALANCED)
+        val quality = resolveAnime4KRenderProfile(Anime4KPreset.QUALITY)
+
+        assertTrue(quality.pushStrength > balanced.pushStrength)
+        assertTrue(quality.sharpenStrength > balanced.sharpenStrength)
+        assertTrue(quality.detailClamp > balanced.detailClamp)
     }
 
     @Test

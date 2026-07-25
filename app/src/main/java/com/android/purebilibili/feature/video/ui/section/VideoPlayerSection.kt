@@ -2715,7 +2715,8 @@ fun VideoPlayerSection(
 
         // 1. PlayerView (底层) - key 触发 graphicsLayer 强制更新
         //  [修复] 添加 isPortraitFullscreen 到 key，确保从全屏返回时重建 PlayerView 并重新绑定 Surface (解决黑屏问题)
-        key(isFlippedHorizontal, isFlippedVertical, isPortraitFullscreen, shouldUseAnime4kPipeline) {
+        // Anime4K 只切换输出 Surface，不能作为 key 重建 PlayerView，否则会触发播放器恢复路径并丢失进度。
+        key(isFlippedHorizontal, isFlippedVertical, isPortraitFullscreen) {
             val viewportAspectRatio = if (isFullscreen) currentAspectRatio else VideoAspectRatio.FIT
             BoxWithConstraints(
                 modifier = playerContentModifier,

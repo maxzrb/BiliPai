@@ -49,6 +49,8 @@ internal object Anime4KShaders {
         uniform sampler2D uLuma;
         uniform vec2 uTexelSize;
         uniform int uUseLuma;
+        uniform float uPushStrength;
+        uniform float uEdgeThreshold;
         in vec2 vTexCoord;
         out vec4 outColor;
 
@@ -61,17 +63,28 @@ internal object Anime4KShaders {
             vec3 center = texture(uColor, vTexCoord).rgb;
             vec2 dx = vec2(uTexelSize.x, 0.0);
             vec2 dy = vec2(0.0, uTexelSize.y);
-            float c = sampleLuma(vTexCoord);
             float l = sampleLuma(vTexCoord - dx);
             float r = sampleLuma(vTexCoord + dx);
             float u = sampleLuma(vTexCoord + dy);
             float d = sampleLuma(vTexCoord - dy);
-            vec2 direction = vec2(r - l, u - d);
-            float edge = clamp(length(direction) * 1.8, 0.0, 1.0);
-            vec2 offset = normalize(direction + vec2(0.00001)) * uTexelSize * 0.65;
-            vec3 pushed = 0.5 * (texture(uColor, vTexCoord - offset).rgb + texture(uColor, vTexCoord + offset).rgb);
-            vec3 result = mix(center, pushed, edge * 0.42);
-            outColor = vec4(result, 1.0);
+            float localContrast = max(max(abs(r - l), abs(u - d)), max(abs(r - u), abs(l - d)));
+            float edge = smoothstep(uEdgeThreshold, uEdgeThreshold * 4.0, localContrast);
+            vec2 gradient = vec2(r - l, u - d);
+            vec2 tangent = normalize(vec2(-gradient.y, gradient.x) + vec2(0.00001));
+            vec2 tangentOffset = tangent * uTexelSize * 1.35;
+            vec3 tangentAverage = 0.5 * (
+                texture(uColor, vTexCoord - tangentOffset).rgb +
+                texture(uColor, vTexCoord + tangentOffset).rgb
+            );
+            vec3 crossAverage = 0.25 * (
+                texture(uColor, vTexCoord - dx).rgb + texture(uColor, vTexCoord + dx).rgb +
+                texture(uColor, vTexCoord - dy).rgb + texture(uColor, vTexCoord + dy).rgb
+            );
+            vec3 localBase = mix(tangentAverage, crossAverage, 0.35);
+            vec3 detail = center - localBase;
+            float limiter = 1.0 / (1.0 + dot(abs(detail), vec3(2.0)));
+            vec3 result = center + detail * (uPushStrength * edge * limiter);
+            outColor = vec4(clamp(result, 0.0, 1.0), 1.0);
         }
     """
 
@@ -102,6 +115,8 @@ internal object Anime4KShaders {
         uniform sampler2D uGradient;
         uniform vec2 uTexelSize;
         uniform float uStrength;
+        uniform float uEdgeThreshold;
+        uniform float uDetailClamp;
         uniform int uUseGradient;
         in vec2 vTexCoord;
         out vec4 outColor;
@@ -109,15 +124,27 @@ internal object Anime4KShaders {
             vec3 center = texture(uColor, vTexCoord).rgb;
             vec2 dx = vec2(uTexelSize.x, 0.0);
             vec2 dy = vec2(0.0, uTexelSize.y);
-            vec3 blur = (
-                texture(uColor, vTexCoord - dx).rgb + texture(uColor, vTexCoord + dx).rgb +
-                texture(uColor, vTexCoord - dy).rgb + texture(uColor, vTexCoord + dy).rgb
-            ) * 0.25;
+            vec3 left = texture(uColor, vTexCoord - dx).rgb;
+            vec3 right = texture(uColor, vTexCoord + dx).rgb;
+            vec3 up = texture(uColor, vTexCoord + dy).rgb;
+            vec3 down = texture(uColor, vTexCoord - dy).rgb;
+            vec3 blur = (left + right + up + down) * 0.25;
+            vec3 detail = center - blur;
+            float measuredEdge = smoothstep(
+                uEdgeThreshold,
+                uEdgeThreshold * 5.0,
+                max(max(abs(dot(center - left, vec3(0.2126, 0.7152, 0.0722))), abs(dot(center - right, vec3(0.2126, 0.7152, 0.0722)))),
+                    max(abs(dot(center - up, vec3(0.2126, 0.7152, 0.0722))), abs(dot(center - down, vec3(0.2126, 0.7152, 0.0722))))
+                )
+            );
             float edge = uUseGradient == 1
-                ? texture(uGradient, vTexCoord).r
-                : clamp(length(center - blur) * 3.0, 0.0, 1.0);
-            vec3 refined = center + (center - blur) * (uStrength * edge);
-            outColor = vec4(clamp(refined, 0.0, 1.0), 1.0);
+                ? max(texture(uGradient, vTexCoord).r, measuredEdge)
+                : measuredEdge;
+            vec3 minimum = min(center, min(min(left, right), min(up, down)));
+            vec3 maximum = max(center, max(max(left, right), max(up, down)));
+            vec3 overshoot = (maximum - minimum) * uDetailClamp + vec3(0.015);
+            vec3 refined = center + detail * (uStrength * edge);
+            outColor = vec4(clamp(refined, minimum - overshoot, maximum + overshoot), 1.0);
         }
     """
 }

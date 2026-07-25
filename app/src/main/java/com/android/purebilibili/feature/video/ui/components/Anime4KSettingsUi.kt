@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.android.purebilibili.feature.anime4k.Anime4KBypassReason
 import com.android.purebilibili.feature.anime4k.Anime4KPreset
+import com.android.purebilibili.feature.anime4k.resolveAnime4KPresetLabel
 
 @Composable
 internal fun Anime4KPresetOptions(
@@ -20,9 +21,9 @@ internal fun Anime4KPresetOptions(
     modifier: Modifier = Modifier
 ) {
     val options = listOf(
-        Anime4KPreset.FAST to "快速",
-        Anime4KPreset.BALANCED to "均衡",
-        Anime4KPreset.QUALITY to "质量"
+        Anime4KPreset.FAST,
+        Anime4KPreset.BALANCED,
+        Anime4KPreset.QUALITY
     )
     Row(
         modifier = modifier
@@ -30,11 +31,11 @@ internal fun Anime4KPresetOptions(
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        options.forEach { (value, label) ->
+        options.forEach { value ->
             FilterChip(
                 selected = preset == value,
                 onClick = { onPresetChange(value) },
-                label = { Text(label) }
+                label = { Text(resolveAnime4KPresetLabel(value)) }
             )
         }
     }
