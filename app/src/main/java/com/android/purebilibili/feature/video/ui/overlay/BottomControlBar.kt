@@ -1192,7 +1192,7 @@ private fun Anime4KMoreAction(
             Column(modifier = Modifier.weight(1f)) {
                 Text("Anime4K", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 Text(
-                    text = if (enabled) "强度：${resolveAnime4KPresetLabel(preset)}" else "实时超分辨率",
+                    text = if (enabled) "模型：${resolveAnime4KPresetLabel(preset)}" else "实时超分辨率",
                     color = Color.White.copy(alpha = 0.68f),
                     fontSize = 11.sp
                 )

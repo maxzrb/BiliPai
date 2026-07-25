@@ -1013,6 +1013,7 @@ fun VideoPlayerSection(
         )
     }
     val anime4kSurfaceReady = shouldUseAnime4kPipeline && anime4kInputSurface != null
+    val anime4kFrameVisible = anime4kSurfaceReady && anime4kDisplayedFirstFrame
     val shouldBindDirectPlayerView = shouldBindInlinePlayerView && !anime4kSurfaceReady
     LaunchedEffect(
         playerViewRef,
@@ -2762,7 +2763,7 @@ fun VideoPlayerSection(
                             useController = false
                             keepScreenOn = keepVideoPlaybackAwake
                             resizeMode = viewportAspectRatio.playerResizeMode
-                            visibility = if (!anime4kSurfaceReady && shouldShowInlinePlayerView(
+                            visibility = if (!anime4kFrameVisible && shouldShowInlinePlayerView(
                                     isPortraitFullscreen = isPortraitFullscreen,
                                     forceCoverDuringReturnAnimation = forceCoverDuringReturnAnimation,
                                     shouldKeepCoverForManualStart = keepCoverForManualStart
@@ -2784,7 +2785,7 @@ fun VideoPlayerSection(
                         )
                         playerView.resizeMode = viewportAspectRatio.playerResizeMode
                         playerView.keepScreenOn = keepVideoPlaybackAwake
-                        playerView.visibility = if (!anime4kSurfaceReady && shouldShowInlinePlayerView(
+                        playerView.visibility = if (!anime4kFrameVisible && shouldShowInlinePlayerView(
                                 isPortraitFullscreen = isPortraitFullscreen,
                                 forceCoverDuringReturnAnimation = forceCoverDuringReturnAnimation,
                                 shouldKeepCoverForManualStart = keepCoverForManualStart
@@ -2816,7 +2817,7 @@ fun VideoPlayerSection(
                 if (shouldUseAnime4kPipeline) {
                     AndroidView(
                         factory = { ctx ->
-                            Anime4KGLSurfaceView(ctx).apply {
+                            Anime4KGLSurfaceView(ctx, initialConfig = anime4kConfig).apply {
                                 anime4kSurfaceViewRef = this
                                 onInputSurfaceChanged = { surface ->
                                     anime4kInputSurface = surface
@@ -2837,7 +2838,7 @@ fun VideoPlayerSection(
                                 updateConfig(anime4kConfig)
                                 updateInputSize(videoSizeState.first, videoSizeState.second)
                                 updateFlip(isFlippedHorizontal, isFlippedVertical)
-                                visibility = if (anime4kSurfaceReady) View.VISIBLE else View.INVISIBLE
+                                visibility = View.VISIBLE
                             }
                         },
                         update = { surfaceView ->
@@ -2861,7 +2862,7 @@ fun VideoPlayerSection(
                             surfaceView.updateConfig(anime4kConfig)
                             surfaceView.updateInputSize(videoSizeState.first, videoSizeState.second)
                             surfaceView.updateFlip(isFlippedHorizontal, isFlippedVertical)
-                            surfaceView.visibility = if (anime4kSurfaceReady) View.VISIBLE else View.INVISIBLE
+                            surfaceView.visibility = View.VISIBLE
                         },
                         modifier = with(density) {
                             Modifier

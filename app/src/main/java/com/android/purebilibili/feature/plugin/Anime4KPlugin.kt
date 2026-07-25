@@ -41,8 +41,8 @@ class Anime4KPlugin : Plugin {
 
     override val id: String = PLUGIN_ID
     override val name: String = "Anime4K 超分辨率"
-    override val description: String = "使用 GPU 实时增强动漫视频边缘与细节"
-    override val version: String = "1.0.0"
+    override val description: String = "使用 Kazumi 同款 Anime4K CNN 链实时重建动漫画面"
+    override val version: String = "2.0.0"
     override val author: String = "BiliPai项目组"
     override val capabilityManifest: PluginCapabilityManifest = PluginCapabilityManifest(
         pluginId = id,
@@ -106,7 +106,7 @@ class Anime4KPlugin : Plugin {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("增强强度", style = MaterialTheme.typography.titleSmall)
+            Text("CNN 模型", style = MaterialTheme.typography.titleSmall)
             Text(
                 text = "HDR、杜比视界、小窗和后台播放会自动使用原始视频输出。",
                 style = MaterialTheme.typography.bodySmall,

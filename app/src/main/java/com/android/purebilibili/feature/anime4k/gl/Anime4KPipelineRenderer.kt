@@ -1,17 +1,22 @@
 package com.android.purebilibili.feature.anime4k.gl
 
+import android.content.Context
 import android.opengl.GLES11Ext
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
+import android.opengl.Matrix
 import android.util.Log
 import android.view.Surface
 import com.android.purebilibili.feature.anime4k.Anime4KConfig
 import com.android.purebilibili.feature.anime4k.Anime4KPreset
 import com.android.purebilibili.feature.anime4k.lowerPerformancePreset
-import com.android.purebilibili.feature.anime4k.resolveAnime4KProcessingSize
+import com.android.purebilibili.feature.anime4k.resolveAnime4KInputSize
 import com.android.purebilibili.feature.anime4k.resolveAnime4KRenderProfile
+import kotlin.math.roundToInt
 
 internal class Anime4KPipelineRenderer(
+    context: Context,
+    initialConfig: Anime4KConfig,
     private val onFrameAvailable: () -> Unit,
     private val onInputSurfaceChanged: (Surface?) -> Unit,
     private val onFirstFrameRendered: () -> Unit,
@@ -19,11 +24,18 @@ internal class Anime4KPipelineRenderer(
     private val onPresetDowngradeRequested: (Anime4KPreset) -> Unit
 ) : GLSurfaceView.Renderer {
 
+    private data class CompiledPass(
+        val program: Int,
+        val samplerLocations: IntArray,
+        val sizeLocations: IntArray
+    )
+
+    private val shaderRepository = Anime4KShaderRepository(context)
     private val fboManager = FboManager()
     private val textureMatrix = FloatArray(16)
-    private val identityMatrix = FloatArray(16).apply {
-        for (index in indices) this[index] = if (index % 5 == 0) 1f else 0f
-    }
+    private val identityMatrix = FloatArray(16).also { Matrix.setIdentityM(it, 0) }
+    private val compiledPasses = mutableMapOf<String, CompiledPass>()
+
     private var externalTextureId = 0
     private var inputSurface: Anime4KInputSurface? = null
     private var outputWidth = 0
@@ -32,8 +44,9 @@ internal class Anime4KPipelineRenderer(
     private var inputHeight = 0
     private var flipHorizontal = false
     private var flipVertical = false
-    private var config = Anime4KConfig()
+    private var config = initialConfig
     private var maxTextureSize = 1
+    private var maxTextureUnits = 1
     @Volatile
     private var frameAvailable = false
     private var hasLatchedFrame = false
@@ -44,32 +57,59 @@ internal class Anime4KPipelineRenderer(
     private var consecutiveSlowFrames = 0
     private var lastRequestedFallbackFrom: Anime4KPreset? = null
     private var externalProgram = 0
-    private var lumaProgram = 0
-    private var pushProgram = 0
-    private var gradientProgram = 0
-    private var refineProgram = 0
+    private var displayProgram = 0
 
-    override fun onSurfaceCreated(unused: javax.microedition.khronos.opengles.GL10?, config: javax.microedition.khronos.egl.EGLConfig?) {
+    override fun onSurfaceCreated(
+        unused: javax.microedition.khronos.opengles.GL10?,
+        eglConfig: javax.microedition.khronos.egl.EGLConfig?
+    ) {
         failed = false
         hasLatchedFrame = false
         notifiedFirstFrame = false
         resetPerformanceStats()
-        releaseGlResources(releaseInput = true)
-        maxTextureSize = IntArray(1).also {
-            GLES30.glGetIntegerv(GLES30.GL_MAX_TEXTURE_SIZE, it, 0)
-        }[0].coerceAtLeast(1)
-        externalProgram = createProgram(Anime4KShaders.EXTERNAL_COPY)
-        lumaProgram = createProgram(Anime4KShaders.LUMINANCE)
-        pushProgram = createProgram(Anime4KShaders.PUSH)
-        gradientProgram = createProgram(Anime4KShaders.GRADIENT)
-        refineProgram = createProgram(Anime4KShaders.REFINE)
-        ensureInputSurface()
-        GLES30.glClearColor(0f, 0f, 0f, 1f)
+        try {
+            releaseGlResources(releaseInput = true)
+            maxTextureSize = queryGlInteger(GLES30.GL_MAX_TEXTURE_SIZE)
+            maxTextureUnits = queryGlInteger(GLES30.GL_MAX_TEXTURE_IMAGE_UNITS)
+            externalProgram = createProgram(Anime4KShaders.EXTERNAL_COPY, "OES 输入转换")
+            displayProgram = createProgram(Anime4KShaders.DISPLAY_COPY, "最终画面输出")
+
+            // 实际创建附件比仅检查扩展字符串更可靠，部分驱动会将能力提升到核心但不再列出扩展。
+            val rgba16fProbe = fboManager.obtain(
+                width = 1,
+                height = 1,
+                precision = FboPrecision.RGBA16F
+            )
+            fboManager.obtain(
+                width = 1,
+                height = 1,
+                precision = FboPrecision.R16F,
+                protectedTextureIds = setOf(rgba16fProbe.texture)
+            )
+            fboManager.release()
+
+            prepareShaderChain(config.preset)
+            ensureInputSurface()
+            GLES30.glDisable(GLES30.GL_BLEND)
+            GLES30.glClearColor(0f, 0f, 0f, 0f)
+        } catch (error: Throwable) {
+            failPipeline(error)
+        }
     }
 
-    override fun onSurfaceChanged(unused: javax.microedition.khronos.opengles.GL10?, width: Int, height: Int) {
-        outputWidth = width.coerceAtLeast(1)
-        outputHeight = height.coerceAtLeast(1)
+    override fun onSurfaceChanged(
+        unused: javax.microedition.khronos.opengles.GL10?,
+        width: Int,
+        height: Int
+    ) {
+        val safeWidth = width.coerceAtLeast(1)
+        val safeHeight = height.coerceAtLeast(1)
+        if (outputWidth != safeWidth || outputHeight != safeHeight) {
+            outputWidth = safeWidth
+            outputHeight = safeHeight
+            fboManager.release()
+            resetPerformanceStats()
+        }
     }
 
     override fun onDrawFrame(unused: javax.microedition.khronos.opengles.GL10?) {
@@ -86,27 +126,50 @@ internal class Anime4KPipelineRenderer(
                 GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
                 return
             }
+
             renderFrame()
+            if (renderSampleCount < SLOW_FRAME_STREAK_FOR_FALLBACK) {
+                // 初始样本等待 GPU 完成，避免只统计 glDraw 调用提交时间而漏掉实际 CNN 开销。
+                GLES30.glFinish()
+            }
             observeRenderTime(System.nanoTime() - renderStartedNs)
             if (!notifiedFirstFrame) {
                 notifiedFirstFrame = true
                 onFirstFrameRendered()
             }
         } catch (error: Throwable) {
-            failed = true
-            Log.e(TAG, "Anime4K 渲染失败", error)
-            onPipelineError(error)
+            failPipeline(error)
         }
     }
 
     fun setConfig(value: Anime4KConfig) {
-        if (config.preset != value.preset) resetPerformanceStats()
-        config = value
+        if (config.preset == value.preset) return
+        try {
+            val previousProfile = resolveAnime4KRenderProfile(config.preset)
+            val nextProfile = resolveAnime4KRenderProfile(value.preset)
+            if (previousProfile.shaderChain != nextProfile.shaderChain) {
+                releaseInputSurface()
+                notifiedFirstFrame = false
+            }
+            config = value
+            fboManager.release()
+            resetPerformanceStats()
+            prepareShaderChain(value.preset)
+            ensureInputSurface()
+        } catch (error: Throwable) {
+            failPipeline(error)
+        }
     }
 
     fun setInputSize(width: Int, height: Int) {
-        inputWidth = width.coerceAtLeast(0)
-        inputHeight = height.coerceAtLeast(0)
+        val safeWidth = width.coerceAtLeast(0)
+        val safeHeight = height.coerceAtLeast(0)
+        if (inputWidth != safeWidth || inputHeight != safeHeight) {
+            inputWidth = safeWidth
+            inputHeight = safeHeight
+            fboManager.release()
+            resetPerformanceStats()
+        }
         inputSurface?.setDefaultBufferSize(inputWidth, inputHeight)
     }
 
@@ -119,10 +182,26 @@ internal class Anime4KPipelineRenderer(
         if (inputSurface != null || failed) return
         externalTextureId = IntArray(1).also { GLES30.glGenTextures(1, it, 0) }[0]
         GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, externalTextureId)
-        GLES30.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
-        GLES30.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
-        GLES30.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
-        GLES30.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+        GLES30.glTexParameteri(
+            GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
+            GLES30.GL_TEXTURE_MIN_FILTER,
+            GLES30.GL_LINEAR
+        )
+        GLES30.glTexParameteri(
+            GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
+            GLES30.GL_TEXTURE_MAG_FILTER,
+            GLES30.GL_LINEAR
+        )
+        GLES30.glTexParameteri(
+            GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
+            GLES30.GL_TEXTURE_WRAP_S,
+            GLES30.GL_CLAMP_TO_EDGE
+        )
+        GLES30.glTexParameteri(
+            GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
+            GLES30.GL_TEXTURE_WRAP_T,
+            GLES30.GL_CLAMP_TO_EDGE
+        )
         inputSurface = Anime4KInputSurface(externalTextureId) {
             frameAvailable = true
             onFrameAvailable()
@@ -150,89 +229,232 @@ internal class Anime4KPipelineRenderer(
 
     private fun renderFrame() {
         val profile = resolveAnime4KRenderProfile(config.preset)
-        val (processingWidth, processingHeight) = resolveAnime4KProcessingSize(
-            outputWidth = outputWidth,
-            outputHeight = outputHeight,
+        val sourceWidth = inputWidth.takeIf { it > 0 } ?: outputWidth
+        val sourceHeight = inputHeight.takeIf { it > 0 } ?: outputHeight
+        val (cnnInputWidth, cnnInputHeight) = resolveAnime4KInputSize(
+            inputWidth = sourceWidth,
+            inputHeight = sourceHeight,
             profile = profile,
             glMaxTextureSize = maxTextureSize
         )
-        val color = fboManager.obtain("color", processingWidth, processingHeight)
-        val push = fboManager.obtain("push", processingWidth, processingHeight)
-        val luma = if (profile.usesLuminancePass) fboManager.obtain("luma", processingWidth, processingHeight) else null
-        val gradient = if (profile.usesGradientPass) fboManager.obtain("gradient", processingWidth, processingHeight) else null
+        val nativeTarget = fboManager.obtain(
+            width = cnnInputWidth,
+            height = cnnInputHeight,
+            precision = FboPrecision.RGBA8
+        )
 
-        drawExternal(target = color)
-        if (luma != null) {
-            drawLuminance(color, luma)
+        drawExternal(nativeTarget)
+        val mainTarget = executeShaderChain(
+            shaderFiles = shaderRepository.loadChain(profile.shaderChain),
+            nativeTarget = nativeTarget
+        )
+        drawDisplay(mainTarget)
+    }
+
+    private fun executeShaderChain(
+        shaderFiles: List<Anime4KShaderFile>,
+        nativeTarget: FboTarget
+    ): FboTarget {
+        val logicalTargets = mutableMapOf("MAIN" to nativeTarget)
+        val deferredBindings = shaderFiles
+            .flatMap(Anime4KShaderFile::passes)
+            .filter { it.hook != "MAIN" }
+            .flatMap(MpvAnime4KShaderPass::bindings)
+            .filterNot { it == "MAIN" || it == "HOOKED" || it == "NATIVE" }
+            .toSet()
+        SUPPORTED_HOOK_ORDER.forEach { hook ->
+            shaderFiles.forEach { shaderFile ->
+                shaderFile.passes
+                    .filter { it.hook == hook }
+                    .forEach { pass ->
+                        executeShaderPass(
+                            shaderFile = shaderFile,
+                            pass = pass,
+                            logicalTargets = logicalTargets,
+                            nativeTarget = nativeTarget
+                        )
+                    }
+                val fileLocalOutputs = shaderFile.passes
+                    .filter { it.hook == hook }
+                    .mapNotNull(MpvAnime4KShaderPass::save)
+                    .filterNot { it == "MAIN" || it in deferredBindings }
+                logicalTargets.keys.removeAll(fileLocalOutputs.toSet())
+            }
         }
-        drawPush(color, luma ?: color, push, luma != null, profile)
-        if (gradient != null) {
-            drawGradient(push, gradient)
+        val unsupportedHooks = shaderFiles
+            .flatMap(Anime4KShaderFile::passes)
+            .map(MpvAnime4KShaderPass::hook)
+            .filterNot(SUPPORTED_HOOK_ORDER::contains)
+            .distinct()
+        check(unsupportedHooks.isEmpty()) {
+            "Anime4K shader 使用了尚未支持的 Hook：${unsupportedHooks.joinToString()}"
         }
-        drawRefine(push, gradient, profile)
+        return logicalTargets["MAIN"] ?: nativeTarget
+    }
+
+    private fun executeShaderPass(
+        shaderFile: Anime4KShaderFile,
+        pass: MpvAnime4KShaderPass,
+        logicalTargets: MutableMap<String, FboTarget>,
+        nativeTarget: FboTarget
+    ) {
+        val hookTarget = logicalTargets["MAIN"]
+            ?: error("${shaderFile.name} 缺少 MAIN 输入")
+        val sizeEnvironment = buildSizeEnvironment(
+            logicalTargets = logicalTargets,
+            hookTarget = hookTarget,
+            nativeTarget = nativeTarget
+        )
+        if (pass.whenExpression != null &&
+            evaluateMpvShaderExpression(pass.whenExpression, sizeEnvironment) == 0.0
+        ) {
+            return
+        }
+
+        val boundTargets = pass.bindings.map { binding ->
+            when (binding) {
+                "HOOKED" -> hookTarget
+                "NATIVE" -> nativeTarget
+                else -> logicalTargets[binding]
+                    ?: error("${shaderFile.name} 的 ${pass.description} 缺少纹理 $binding")
+            }
+        }
+        check(boundTargets.size <= maxTextureUnits) {
+            "${pass.description} 需要 ${boundTargets.size} 个纹理单元，设备仅支持 $maxTextureUnits 个"
+        }
+
+        val targetWidth = resolveTargetDimension(
+            expression = pass.widthExpression,
+            fallback = hookTarget.width,
+            sizes = sizeEnvironment
+        )
+        val targetHeight = resolveTargetDimension(
+            expression = pass.heightExpression,
+            fallback = hookTarget.height,
+            sizes = sizeEnvironment
+        )
+        val protectedTextureIds = buildSet {
+            add(nativeTarget.texture)
+            logicalTargets.values.forEach { add(it.texture) }
+            boundTargets.forEach { add(it.texture) }
+        }
+        val outputTarget = fboManager.obtain(
+            width = targetWidth,
+            height = targetHeight,
+            precision = if (pass.components == 1) FboPrecision.R16F else FboPrecision.RGBA16F,
+            protectedTextureIds = protectedTextureIds
+        )
+        drawMpvPass(pass, boundTargets, outputTarget)
+
+        val outputName = pass.save ?: "MAIN"
+        logicalTargets[outputName] = outputTarget
+    }
+
+    private fun buildSizeEnvironment(
+        logicalTargets: Map<String, FboTarget>,
+        hookTarget: FboTarget,
+        nativeTarget: FboTarget
+    ): Map<String, Anime4KTextureSize> {
+        val sizes = logicalTargets.mapValues { (_, target) ->
+            Anime4KTextureSize(target.width, target.height)
+        }.toMutableMap()
+        sizes["HOOKED"] = Anime4KTextureSize(hookTarget.width, hookTarget.height)
+        sizes["NATIVE"] = Anime4KTextureSize(nativeTarget.width, nativeTarget.height)
+        sizes["OUTPUT"] = Anime4KTextureSize(outputWidth, outputHeight)
+        return sizes
+    }
+
+    private fun resolveTargetDimension(
+        expression: String?,
+        fallback: Int,
+        sizes: Map<String, Anime4KTextureSize>
+    ): Int {
+        val value = expression
+            ?.let { evaluateMpvShaderExpression(it, sizes).roundToInt() }
+            ?: fallback
+        return value.coerceIn(1, maxTextureSize)
     }
 
     private fun drawExternal(target: FboTarget) {
         bindTarget(target)
         GLES30.glUseProgram(externalProgram)
-        bindTexture(externalProgram, "uTexture", GLES11Ext.GL_TEXTURE_EXTERNAL_OES, externalTextureId, 0)
+        bindTexture(
+            program = externalProgram,
+            uniform = "uTexture",
+            target = GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
+            texture = externalTextureId,
+            unit = 0
+        )
         setVertexUniforms(externalProgram, textureMatrix, flipHorizontal, flipVertical)
         QuadRenderUtils.draw(externalProgram)
     }
 
-    private fun drawLuminance(color: FboTarget, target: FboTarget) {
-        bindTarget(target)
-        GLES30.glUseProgram(lumaProgram)
-        bindTexture(lumaProgram, "uColor", GLES30.GL_TEXTURE_2D, color.texture, 0)
-        setVertexUniforms(lumaProgram, identityMatrix, false, false)
-        QuadRenderUtils.draw(lumaProgram)
-    }
-
-    private fun drawPush(
-        color: FboTarget,
-        luma: FboTarget,
-        target: FboTarget,
-        usesLuma: Boolean,
-        profile: com.android.purebilibili.feature.anime4k.Anime4KRenderProfile
+    private fun drawMpvPass(
+        pass: MpvAnime4KShaderPass,
+        boundTargets: List<FboTarget>,
+        outputTarget: FboTarget
     ) {
-        bindTarget(target)
-        GLES30.glUseProgram(pushProgram)
-        bindTexture(pushProgram, "uColor", GLES30.GL_TEXTURE_2D, color.texture, 0)
-        bindTexture(pushProgram, "uLuma", GLES30.GL_TEXTURE_2D, luma.texture, 1)
-        setVec2(pushProgram, "uTexelSize", 1f / color.width, 1f / color.height)
-        GLES30.glUniform1i(GLES30.glGetUniformLocation(pushProgram, "uUseLuma"), if (usesLuma) 1 else 0)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(pushProgram, "uPushStrength"), profile.pushStrength)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(pushProgram, "uEdgeThreshold"), profile.edgeThreshold)
-        setVertexUniforms(pushProgram, identityMatrix, false, false)
-        QuadRenderUtils.draw(pushProgram)
+        val compiled = obtainCompiledPass(pass)
+        bindTarget(outputTarget)
+        GLES30.glUseProgram(compiled.program)
+        boundTargets.forEachIndexed { index, target ->
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + index)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, target.texture)
+            GLES30.glUniform1i(compiled.samplerLocations[index], index)
+            GLES30.glUniform2f(
+                compiled.sizeLocations[index],
+                target.width.toFloat(),
+                target.height.toFloat()
+            )
+        }
+        setVertexUniforms(compiled.program, identityMatrix, false, false)
+        QuadRenderUtils.draw(compiled.program)
     }
 
-    private fun drawGradient(color: FboTarget, target: FboTarget) {
-        bindTarget(target)
-        GLES30.glUseProgram(gradientProgram)
-        bindTexture(gradientProgram, "uColor", GLES30.GL_TEXTURE_2D, color.texture, 0)
-        setVec2(gradientProgram, "uTexelSize", 1f / color.width, 1f / color.height)
-        setVertexUniforms(gradientProgram, identityMatrix, false, false)
-        QuadRenderUtils.draw(gradientProgram)
-    }
-
-    private fun drawRefine(
-        color: FboTarget,
-        gradient: FboTarget?,
-        profile: com.android.purebilibili.feature.anime4k.Anime4KRenderProfile
-    ) {
+    private fun drawDisplay(target: FboTarget) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
         GLES30.glViewport(0, 0, outputWidth, outputHeight)
-        GLES30.glUseProgram(refineProgram)
-        bindTexture(refineProgram, "uColor", GLES30.GL_TEXTURE_2D, color.texture, 0)
-        bindTexture(refineProgram, "uGradient", GLES30.GL_TEXTURE_2D, (gradient ?: color).texture, 1)
-        setVec2(refineProgram, "uTexelSize", 1f / color.width, 1f / color.height)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(refineProgram, "uStrength"), profile.sharpenStrength)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(refineProgram, "uEdgeThreshold"), profile.edgeThreshold)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(refineProgram, "uDetailClamp"), profile.detailClamp)
-        GLES30.glUniform1i(GLES30.glGetUniformLocation(refineProgram, "uUseGradient"), if (gradient != null) 1 else 0)
-        setVertexUniforms(refineProgram, identityMatrix, false, false)
-        QuadRenderUtils.draw(refineProgram)
+        GLES30.glUseProgram(displayProgram)
+        bindTexture(
+            program = displayProgram,
+            uniform = "uTexture",
+            target = GLES30.GL_TEXTURE_2D,
+            texture = target.texture,
+            unit = 0
+        )
+        setVertexUniforms(displayProgram, identityMatrix, false, false)
+        QuadRenderUtils.draw(displayProgram)
+    }
+
+    private fun obtainCompiledPass(pass: MpvAnime4KShaderPass): CompiledPass {
+        val key = "${pass.sourceName}:${pass.index}"
+        return compiledPasses.getOrPut(key) {
+            val program = createProgram(
+                fragmentSource = buildMpvAnime4KFragmentShader(pass),
+                description = "${pass.sourceName} / ${pass.description}"
+            )
+            CompiledPass(
+                program = program,
+                samplerLocations = IntArray(pass.bindings.size) { index ->
+                    GLES30.glGetUniformLocation(program, "uTexture$index")
+                },
+                sizeLocations = IntArray(pass.bindings.size) { index ->
+                    GLES30.glGetUniformLocation(program, "uTextureSize$index")
+                }
+            )
+        }
+    }
+
+    private fun prepareShaderChain(preset: Anime4KPreset) {
+        val profile = resolveAnime4KRenderProfile(preset)
+        shaderRepository.loadChain(profile.shaderChain)
+            .flatMap(Anime4KShaderFile::passes)
+            .forEach { pass ->
+                check(pass.bindings.size <= maxTextureUnits) {
+                    "${pass.description} 需要 ${pass.bindings.size} 个纹理单元，设备仅支持 $maxTextureUnits 个"
+                }
+                obtainCompiledPass(pass)
+            }
     }
 
     private fun bindTarget(target: FboTarget) {
@@ -240,18 +462,31 @@ internal class Anime4KPipelineRenderer(
         GLES30.glViewport(0, 0, target.width, target.height)
     }
 
-    private fun bindTexture(program: Int, uniform: String, target: Int, texture: Int, unit: Int) {
+    private fun bindTexture(
+        program: Int,
+        uniform: String,
+        target: Int,
+        texture: Int,
+        unit: Int
+    ) {
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + unit)
         GLES30.glBindTexture(target, texture)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(program, uniform), unit)
     }
 
-    private fun setVec2(program: Int, uniform: String, x: Float, y: Float) {
-        GLES30.glUniform2f(GLES30.glGetUniformLocation(program, uniform), x, y)
-    }
-
-    private fun setVertexUniforms(program: Int, matrix: FloatArray, horizontalFlip: Boolean, verticalFlip: Boolean) {
-        GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(program, "uTexMatrix"), 1, false, matrix, 0)
+    private fun setVertexUniforms(
+        program: Int,
+        matrix: FloatArray,
+        horizontalFlip: Boolean,
+        verticalFlip: Boolean
+    ) {
+        GLES30.glUniformMatrix4fv(
+            GLES30.glGetUniformLocation(program, "uTexMatrix"),
+            1,
+            false,
+            matrix,
+            0
+        )
         GLES30.glUniform2f(
             GLES30.glGetUniformLocation(program, "uFlip"),
             if (horizontalFlip) 1f else 0f,
@@ -259,42 +494,73 @@ internal class Anime4KPipelineRenderer(
         )
     }
 
-    private fun createProgram(fragmentSource: String): Int {
-        val vertex = compileShader(GLES30.GL_VERTEX_SHADER, Anime4KShaders.VERTEX)
-        val fragment = compileShader(GLES30.GL_FRAGMENT_SHADER, fragmentSource)
-        return GLES30.glCreateProgram().also { program ->
-            GLES30.glAttachShader(program, vertex)
-            GLES30.glAttachShader(program, fragment)
-            GLES30.glLinkProgram(program)
-            val linked = IntArray(1)
-            GLES30.glGetProgramiv(program, GLES30.GL_LINK_STATUS, linked, 0)
-            check(linked[0] == GLES30.GL_TRUE) { "Anime4K program link failed: ${GLES30.glGetProgramInfoLog(program)}" }
-            GLES30.glDeleteShader(vertex)
-            GLES30.glDeleteShader(fragment)
+    private fun createProgram(fragmentSource: String, description: String): Int {
+        val vertex = compileShader(
+            type = GLES30.GL_VERTEX_SHADER,
+            source = Anime4KShaders.VERTEX,
+            description = "$description vertex"
+        )
+        val fragment = compileShader(
+            type = GLES30.GL_FRAGMENT_SHADER,
+            source = fragmentSource,
+            description = "$description fragment"
+        )
+        val program = GLES30.glCreateProgram()
+        GLES30.glAttachShader(program, vertex)
+        GLES30.glAttachShader(program, fragment)
+        GLES30.glLinkProgram(program)
+        val linked = IntArray(1)
+        GLES30.glGetProgramiv(program, GLES30.GL_LINK_STATUS, linked, 0)
+        GLES30.glDeleteShader(vertex)
+        GLES30.glDeleteShader(fragment)
+        if (linked[0] != GLES30.GL_TRUE) {
+            val log = GLES30.glGetProgramInfoLog(program)
+            GLES30.glDeleteProgram(program)
+            error("Anime4K program 链接失败（$description）：$log")
         }
+        return program
     }
 
-    private fun compileShader(type: Int, source: String): Int {
-        return GLES30.glCreateShader(type).also { shader ->
-            GLES30.glShaderSource(shader, source)
-            GLES30.glCompileShader(shader)
-            val compiled = IntArray(1)
-            GLES30.glGetShaderiv(shader, GLES30.GL_COMPILE_STATUS, compiled, 0)
-            check(compiled[0] == GLES30.GL_TRUE) { "Anime4K shader compile failed: ${GLES30.glGetShaderInfoLog(shader)}" }
+    private fun compileShader(type: Int, source: String, description: String): Int {
+        val shader = GLES30.glCreateShader(type)
+        GLES30.glShaderSource(shader, source)
+        GLES30.glCompileShader(shader)
+        val compiled = IntArray(1)
+        GLES30.glGetShaderiv(shader, GLES30.GL_COMPILE_STATUS, compiled, 0)
+        if (compiled[0] != GLES30.GL_TRUE) {
+            val log = GLES30.glGetShaderInfoLog(shader)
+            GLES30.glDeleteShader(shader)
+            error("Anime4K shader 编译失败（$description）：$log")
         }
+        return shader
+    }
+
+    private fun queryGlInteger(name: Int): Int {
+        return IntArray(1)
+            .also { GLES30.glGetIntegerv(name, it, 0) }[0]
+            .coerceAtLeast(1)
     }
 
     private fun releaseGlResources(releaseInput: Boolean) {
         fboManager.release()
-        listOf(externalProgram, lumaProgram, pushProgram, gradientProgram, refineProgram)
-            .filter { it != 0 }
-            .forEach { GLES30.glDeleteProgram(it) }
+        buildSet {
+            add(externalProgram)
+            add(displayProgram)
+            compiledPasses.values.forEach { add(it.program) }
+        }.filter { it != 0 }
+            .forEach(GLES30::glDeleteProgram)
         externalProgram = 0
-        lumaProgram = 0
-        pushProgram = 0
-        gradientProgram = 0
-        refineProgram = 0
+        displayProgram = 0
+        compiledPasses.clear()
         if (releaseInput) releaseInputSurface()
+    }
+
+    private fun failPipeline(error: Throwable) {
+        if (failed) return
+        failed = true
+        Log.e(TAG, "Anime4K CNN 渲染失败", error)
+        runCatching { releaseInputSurface() }
+        onPipelineError(error)
     }
 
     private fun observeRenderTime(renderNs: Long) {
@@ -316,7 +582,10 @@ internal class Anime4KPipelineRenderer(
         }
         if (renderSampleCount >= PERFORMANCE_LOG_SAMPLE_COUNT) {
             val averageMs = accumulatedRenderNs / renderSampleCount / 1_000_000.0
-            Log.d(TAG, "Anime4K preset=${config.preset}, averageSubmitMs=${"%.2f".format(averageMs)}")
+            Log.d(
+                TAG,
+                "Anime4K CNN preset=${config.preset}, averageSubmitMs=${"%.2f".format(averageMs)}"
+            )
             renderSampleCount = 0
             accumulatedRenderNs = 0L
         }
@@ -331,8 +600,9 @@ internal class Anime4KPipelineRenderer(
 
     private companion object {
         const val TAG = "Anime4KRenderer"
-        const val SLOW_FRAME_THRESHOLD_NS = 28_000_000L
+        const val SLOW_FRAME_THRESHOLD_NS = 40_000_000L
         const val SLOW_FRAME_STREAK_FOR_FALLBACK = 8
         const val PERFORMANCE_LOG_SAMPLE_COUNT = 120
+        val SUPPORTED_HOOK_ORDER = listOf("MAIN", "PREKERNEL")
     }
 }
