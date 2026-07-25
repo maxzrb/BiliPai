@@ -49,6 +49,18 @@ class Anime4KOutputPolicyTest {
     }
 
     @Test
+    fun processingSize_preservesNative1080pForAllSdrQualityTiers() {
+        assertEquals(
+            1920 to 1080,
+            resolveAnime4KInputSize(
+                inputWidth = 1920,
+                inputHeight = 1080,
+                glMaxTextureSize = 4096
+            )
+        )
+    }
+
+    @Test
     fun processingSize_onlyClampsAtGpuTextureLimit() {
         assertEquals(
             4096 to 2304,
