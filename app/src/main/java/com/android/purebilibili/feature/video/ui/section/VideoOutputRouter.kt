@@ -58,6 +58,7 @@ internal class VideoOutputRouter(
             return
         }
 
+        val wasUsingAnime4K = usingAnime4K
         if (usingAnime4K) {
             player.clearVideoSurface()
             usingAnime4K = false
@@ -65,7 +66,12 @@ internal class VideoOutputRouter(
         }
         val view = directPlayerView ?: return
         if (shouldBindDirectPlayerView) {
-            if (view.player !== player) view.player = player
+            if (wasUsingAnime4K) {
+                // clearVideoSurface() 会清掉同一帧内 PlayerView 刚绑定的 Surface，必须显式重绑。
+                rebindPlayerSurfaceIfNeeded(view, player)
+            } else if (view.player !== player) {
+                view.player = player
+            }
         } else if (view.player === player) {
             view.player = null
         }
