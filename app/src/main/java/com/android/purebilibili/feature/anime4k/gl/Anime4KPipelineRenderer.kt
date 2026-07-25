@@ -6,6 +6,8 @@ import android.opengl.GLSurfaceView
 import android.util.Log
 import android.view.Surface
 import com.android.purebilibili.feature.anime4k.Anime4KConfig
+import com.android.purebilibili.feature.anime4k.Anime4KPreset
+import com.android.purebilibili.feature.anime4k.lowerPerformancePreset
 import com.android.purebilibili.feature.anime4k.resolveAnime4KProcessingSize
 import com.android.purebilibili.feature.anime4k.resolveAnime4KRenderProfile
 
@@ -13,7 +15,8 @@ internal class Anime4KPipelineRenderer(
     private val onFrameAvailable: () -> Unit,
     private val onInputSurfaceChanged: (Surface?) -> Unit,
     private val onFirstFrameRendered: () -> Unit,
-    private val onPipelineError: (Throwable) -> Unit
+    private val onPipelineError: (Throwable) -> Unit,
+    private val onPresetDowngradeRequested: (Anime4KPreset) -> Unit
 ) : GLSurfaceView.Renderer {
 
     private val fboManager = FboManager()
@@ -36,6 +39,10 @@ internal class Anime4KPipelineRenderer(
     private var hasLatchedFrame = false
     private var notifiedFirstFrame = false
     private var failed = false
+    private var renderSampleCount = 0
+    private var accumulatedRenderNs = 0L
+    private var consecutiveSlowFrames = 0
+    private var lastRequestedFallbackFrom: Anime4KPreset? = null
     private var externalProgram = 0
     private var lumaProgram = 0
     private var pushProgram = 0
@@ -46,6 +53,7 @@ internal class Anime4KPipelineRenderer(
         failed = false
         hasLatchedFrame = false
         notifiedFirstFrame = false
+        resetPerformanceStats()
         releaseGlResources(releaseInput = true)
         maxTextureSize = IntArray(1).also {
             GLES30.glGetIntegerv(GLES30.GL_MAX_TEXTURE_SIZE, it, 0)
@@ -67,6 +75,7 @@ internal class Anime4KPipelineRenderer(
     override fun onDrawFrame(unused: javax.microedition.khronos.opengles.GL10?) {
         if (failed) return
         try {
+            val renderStartedNs = System.nanoTime()
             if (frameAvailable) {
                 frameAvailable = false
                 inputSurface?.surfaceTexture?.updateTexImage()
@@ -78,6 +87,7 @@ internal class Anime4KPipelineRenderer(
                 return
             }
             renderFrame()
+            observeRenderTime(System.nanoTime() - renderStartedNs)
             if (!notifiedFirstFrame) {
                 notifiedFirstFrame = true
                 onFirstFrameRendered()
@@ -90,6 +100,7 @@ internal class Anime4KPipelineRenderer(
     }
 
     fun setConfig(value: Anime4KConfig) {
+        if (config.preset != value.preset) resetPerformanceStats()
         config = value
     }
 
@@ -272,7 +283,42 @@ internal class Anime4KPipelineRenderer(
         if (releaseInput) releaseInputSurface()
     }
 
+    private fun observeRenderTime(renderNs: Long) {
+        renderSampleCount += 1
+        accumulatedRenderNs += renderNs
+        if (renderNs >= SLOW_FRAME_THRESHOLD_NS) {
+            consecutiveSlowFrames += 1
+        } else {
+            consecutiveSlowFrames = (consecutiveSlowFrames - 1).coerceAtLeast(0)
+        }
+        if (consecutiveSlowFrames >= SLOW_FRAME_STREAK_FOR_FALLBACK) {
+            val currentPreset = config.preset
+            val fallbackPreset = currentPreset.lowerPerformancePreset()
+            if (fallbackPreset != null && lastRequestedFallbackFrom != currentPreset) {
+                lastRequestedFallbackFrom = currentPreset
+                onPresetDowngradeRequested(fallbackPreset)
+            }
+            consecutiveSlowFrames = 0
+        }
+        if (renderSampleCount >= PERFORMANCE_LOG_SAMPLE_COUNT) {
+            val averageMs = accumulatedRenderNs / renderSampleCount / 1_000_000.0
+            Log.d(TAG, "Anime4K preset=${config.preset}, averageSubmitMs=${"%.2f".format(averageMs)}")
+            renderSampleCount = 0
+            accumulatedRenderNs = 0L
+        }
+    }
+
+    private fun resetPerformanceStats() {
+        renderSampleCount = 0
+        accumulatedRenderNs = 0L
+        consecutiveSlowFrames = 0
+        lastRequestedFallbackFrom = null
+    }
+
     private companion object {
         const val TAG = "Anime4KRenderer"
+        const val SLOW_FRAME_THRESHOLD_NS = 28_000_000L
+        const val SLOW_FRAME_STREAK_FOR_FALLBACK = 8
+        const val PERFORMANCE_LOG_SAMPLE_COUNT = 120
     }
 }

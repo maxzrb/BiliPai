@@ -5,6 +5,7 @@ import android.opengl.GLSurfaceView
 import android.util.AttributeSet
 import android.view.Surface
 import com.android.purebilibili.feature.anime4k.Anime4KConfig
+import com.android.purebilibili.feature.anime4k.Anime4KPreset
 
 /** Anime4K 的可见输出 SurfaceView，解码器输入 Surface 由 renderer 异步提供。 */
 class Anime4KGLSurfaceView @JvmOverloads constructor(
@@ -15,12 +16,14 @@ class Anime4KGLSurfaceView @JvmOverloads constructor(
     var onInputSurfaceChanged: (Surface?) -> Unit = {}
     var onFirstFrameRendered: () -> Unit = {}
     var onPipelineError: (Throwable) -> Unit = {}
+    var onPresetDowngradeRequested: (Anime4KPreset) -> Unit = {}
 
     private val pipelineRenderer = Anime4KPipelineRenderer(
         onFrameAvailable = { requestRender() },
         onInputSurfaceChanged = { surface -> post { onInputSurfaceChanged(surface) } },
         onFirstFrameRendered = { post { onFirstFrameRendered() } },
-        onPipelineError = { error -> post { onPipelineError(error) } }
+        onPipelineError = { error -> post { onPipelineError(error) } },
+        onPresetDowngradeRequested = { preset -> post { onPresetDowngradeRequested(preset) } }
     )
 
     init {

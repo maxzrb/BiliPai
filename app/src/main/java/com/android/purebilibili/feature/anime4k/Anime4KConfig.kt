@@ -16,6 +16,14 @@ enum class Anime4KPreset {
     QUALITY
 }
 
+fun Anime4KPreset.lowerPerformancePreset(): Anime4KPreset? {
+    return when (this) {
+        Anime4KPreset.QUALITY -> Anime4KPreset.BALANCED
+        Anime4KPreset.BALANCED -> Anime4KPreset.FAST
+        Anime4KPreset.FAST -> null
+    }
+}
+
 /** 渲染器使用的非持久化预设参数。 */
 data class Anime4KRenderProfile(
     val internalScale: Float,

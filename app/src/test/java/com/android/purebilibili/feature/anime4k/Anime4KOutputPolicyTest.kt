@@ -62,4 +62,11 @@ class Anime4KOutputPolicyTest {
         assertTrue(decision.shouldUsePipeline)
         assertEquals(Anime4KBypassReason.NONE, decision.bypassReason)
     }
+
+    @Test
+    fun lowerPerformancePreset_stopsAtFast() {
+        assertEquals(Anime4KPreset.BALANCED, Anime4KPreset.QUALITY.lowerPerformancePreset())
+        assertEquals(Anime4KPreset.FAST, Anime4KPreset.BALANCED.lowerPerformancePreset())
+        assertEquals(null, Anime4KPreset.FAST.lowerPerformancePreset())
+    }
 }
