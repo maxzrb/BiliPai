@@ -27,7 +27,7 @@ internal fun decidePlayerErrorRecovery(
         }
     } else {
         when {
-            isDecoderLikeFailure && retryCount < 1 -> PlayerErrorRecoveryAction.RETRY_DECODER_FALLBACK
+            isDecoderLikeFailure && retryCount < 2 -> PlayerErrorRecoveryAction.RETRY_DECODER_FALLBACK
             retryCount < 1 -> PlayerErrorRecoveryAction.RETRY_NON_NETWORK
             else -> PlayerErrorRecoveryAction.GIVE_UP
         }

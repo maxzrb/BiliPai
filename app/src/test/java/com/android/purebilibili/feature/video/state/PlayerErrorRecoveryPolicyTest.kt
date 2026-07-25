@@ -52,6 +52,31 @@ class PlayerErrorRecoveryPolicyTest {
     }
 
     @Test
+    fun decoderLikeFailureAllowsSecondaryThenAvcFallback() {
+        val secondFallback = decidePlayerErrorRecovery(
+            errorCode = PlaybackException.ERROR_CODE_FAILED_RUNTIME_CHECK,
+            hasCdnAlternatives = false,
+            retryCount = 1,
+            maxRetries = 3,
+            cdnSwitchCount = 0,
+            maxCdnSwitches = 2,
+            isDecoderLikeFailure = true
+        )
+        val exhausted = decidePlayerErrorRecovery(
+            errorCode = PlaybackException.ERROR_CODE_FAILED_RUNTIME_CHECK,
+            hasCdnAlternatives = false,
+            retryCount = 2,
+            maxRetries = 3,
+            cdnSwitchCount = 0,
+            maxCdnSwitches = 2,
+            isDecoderLikeFailure = true
+        )
+
+        assertEquals(PlayerErrorRecoveryAction.RETRY_DECODER_FALLBACK, secondFallback)
+        assertEquals(PlayerErrorRecoveryAction.GIVE_UP, exhausted)
+    }
+
+    @Test
     fun nonNetworkNonDecoderRetriesOnce() {
         val action = decidePlayerErrorRecovery(
             errorCode = PlaybackException.ERROR_CODE_FAILED_RUNTIME_CHECK,

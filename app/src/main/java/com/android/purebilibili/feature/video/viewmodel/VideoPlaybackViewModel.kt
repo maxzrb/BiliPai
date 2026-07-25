@@ -131,7 +131,7 @@ import com.android.purebilibili.feature.video.subtitle.mapPlayerInfoSubtitleTrac
 import com.android.purebilibili.feature.video.subtitle.normalizeBilibiliSubtitleUrl
 import com.android.purebilibili.feature.video.subtitle.resolveDefaultSubtitleLanguages
 
-private const val PLAYBACK_CDN_FIRST_FRAME_FALLBACK_TIMEOUT_MS = 2_500L
+private const val PLAYBACK_CDN_FIRST_FRAME_FALLBACK_TIMEOUT_MS = 5_000L
 
 data class CommentMentionSearchUiState(
     val query: String = "",
@@ -380,6 +380,30 @@ internal fun buildPlaybackAudioUrlCandidates(
     return buildList {
         audioUrl?.takeIf { it.isNotBlank() }?.let(::add)
         selectedAudio
+            ?.backupUrl
+            .orEmpty()
+            .filter { it.isNotBlank() }
+            .let(::addAll)
+    }.distinct()
+}
+
+internal fun buildPlaybackVideoUrlCandidates(
+    videoUrl: String,
+    quality: Int,
+    cachedDashVideos: List<DashVideo>
+): List<String> {
+    val selectedVideo = cachedDashVideos.firstOrNull { video ->
+        video.id == quality && (
+            video.baseUrl == videoUrl ||
+                video.backupUrl.orEmpty().any { backupUrl -> backupUrl == videoUrl }
+            )
+    }
+
+    return buildList {
+        if (videoUrl.isNotBlank()) {
+            add(videoUrl)
+        }
+        selectedVideo
             ?.backupUrl
             .orEmpty()
             .filter { it.isNotBlank() }
@@ -2877,9 +2901,13 @@ class VideoPlaybackViewModel : ViewModel() {
                     settingsCodecPreference = settingsCodecPreference,
                     sessionBlockedCodecs = sessionBlockedCodecs
                 )
-                val videoSecondCodecPreference = appContext?.let {
+                val settingsSecondCodecPreference = appContext?.let {
                     com.android.purebilibili.core.store.SettingsManager.getVideoSecondCodecSync(it)
                 } ?: AVC_CODEC_KEY
+                val videoSecondCodecPreference = resolveEffectiveVideoSecondCodecPreference(
+                    requestCodecOverride = playbackRequest.videoCodecOverride,
+                    settingsSecondCodecPreference = settingsSecondCodecPreference
+                )
                 val isHdrSupported = appContext?.let {
                     com.android.purebilibili.core.util.MediaUtils.isHdrSupported(it)
                 } ?: com.android.purebilibili.core.util.MediaUtils.isHdrSupported()
@@ -3674,7 +3702,7 @@ class VideoPlaybackViewModel : ViewModel() {
     }
 
     /**
-     * 解码类错误时的安全重试：强制使用 AVC，规避特定机型 HEVC/AV1 解码异常导致的卡死。
+     * 解码类错误时按用户的次选编码重试，次选不可用或再次失败时再使用 AVC。
      */
     fun retryWithCodecFallback() {
         val current = _uiState.value as? VideoPlaybackUiState.Success ?: run {
@@ -3690,18 +3718,46 @@ class VideoPlaybackViewModel : ViewModel() {
                 isPlaying = player.isPlaying
             )
         } ?: true
-        playbackSessionStore.blockVideoCodec(AV1_CODEC_KEY)
+        val failedCodec = resolvePlaybackVideoCodec(
+            videoUrl = current.playUrl,
+            cachedDashVideos = current.cachedDashVideos
+        ) ?: normalizeCodecFamilyKey(_videoCodecPreference.value)
+        val sessionBlockedCodecs = playbackSessionStore.state.value.blockedVideoCodecs
+        val secondaryCodecPreference = appContext?.let { context ->
+            com.android.purebilibili.core.store.SettingsManager.getVideoSecondCodecSync(context)
+        } ?: _videoSecondCodecPreference.value
+        val fallbackCodec = resolveNextVideoCodecFallback(
+            failedCodec = failedCodec,
+            secondaryCodecPreference = secondaryCodecPreference,
+            isHevcSupported = com.android.purebilibili.core.util.MediaUtils.isHevcSupported(),
+            isAv1Supported = resolveEffectiveAv1Support(
+                deviceSupportsAv1 = com.android.purebilibili.core.util.MediaUtils.isAv1Supported(),
+                sessionBlockedCodecs = sessionBlockedCodecs
+            )
+        ) ?: run {
+            Logger.w(
+                "PlayerVM",
+                "Codec fallback unavailable: failed=${failedCodec ?: "unknown"}"
+            )
+            return
+        }
+        if (failedCodec == AV1_CODEC_KEY) {
+            playbackSessionStore.blockVideoCodec(AV1_CODEC_KEY)
+        }
         PlaybackCooldownManager.clearForVideo(bvid)
         PlayUrlCache.invalidate(bvid, current.info.cid)
         playbackSessionStore.clearCurrentMedia()
-        Logger.w("PlayerVM", "🛟 Retrying with safe codec fallback: AVC")
+        Logger.w(
+            "PlayerVM",
+            "Codec fallback: ${failedCodec ?: "unknown"} -> $fallbackCodec, reason=decoder_error"
+        )
         loadVideo(
             bvid = bvid,
             aid = current.info.aid,
             force = true,
             autoPlay = resumePlaybackAfterRetry,
             audioLang = current.currentAudioLang,
-            videoCodecOverride = AVC_CODEC_KEY,
+            videoCodecOverride = fallbackCodec,
             cid = current.info.cid,
             fallbackResumePositionMs = fallbackResumePositionMs
         )
@@ -7452,15 +7508,11 @@ class VideoPlaybackViewModel : ViewModel() {
         cachedDashAudios: List<DashAudio>,
         adaptiveDashSource: AdaptiveDashPlaybackSource?
     ): PlaybackCdnCandidateSelection {
-        val rawVideoUrls = buildList {
-            if (videoUrl.isNotEmpty()) add(videoUrl)
-            cachedDashVideos
-                .find { it.id == quality }
-                ?.backupUrl
-                ?.filterNotNull()
-                ?.filter { it.isNotEmpty() }
-                ?.let { addAll(it) }
-        }.distinct()
+        val rawVideoUrls = buildPlaybackVideoUrlCandidates(
+            videoUrl = videoUrl,
+            quality = quality,
+            cachedDashVideos = cachedDashVideos
+        )
 
         val rawAudioUrls = buildPlaybackAudioUrlCandidates(
             audioUrl = audioUrl,
