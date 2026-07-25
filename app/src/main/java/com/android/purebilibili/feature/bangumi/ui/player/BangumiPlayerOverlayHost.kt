@@ -11,6 +11,8 @@ import com.android.purebilibili.feature.bangumi.resolveBangumiOverlaySwitchableQ
 import com.android.purebilibili.feature.bangumi.resolveBangumiUnsupportedOverlayActionMessage
 import com.android.purebilibili.feature.bangumi.shouldShowBangumiOverlayDislikeAction
 import com.android.purebilibili.core.util.ShareUtils
+import com.android.purebilibili.feature.anime4k.Anime4KBypassReason
+import com.android.purebilibili.feature.anime4k.Anime4KPreset
 import com.android.purebilibili.feature.video.ui.components.VideoAspectRatio
 import com.android.purebilibili.feature.video.ui.overlay.PlaybackDebugInfo
 import com.android.purebilibili.feature.video.ui.overlay.SubtitleControlCallbacks
@@ -71,6 +73,12 @@ internal fun BangumiPlayerOverlayHost(
     onCoin: () -> Unit,
     onCaptureScreenshot: () -> Unit,
     onReloadVideo: () -> Unit,
+    anime4kEnabled: Boolean,
+    anime4kAvailable: Boolean,
+    anime4kBypassReason: Anime4KBypassReason,
+    anime4kPreset: Anime4KPreset,
+    onAnime4kToggle: (Boolean) -> Unit,
+    onAnime4kPresetChange: (Anime4KPreset) -> Unit,
     onShowMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -146,6 +154,12 @@ internal fun BangumiPlayerOverlayHost(
         showDislikeAction = shouldShowBangumiOverlayDislikeAction(),
         coverUrl = coverUrl,
         onReloadVideo = onReloadVideo,
+        anime4kEnabled = anime4kEnabled,
+        anime4kAvailable = anime4kAvailable,
+        anime4kBypassReason = anime4kBypassReason,
+        anime4kPreset = anime4kPreset,
+        onAnime4kToggle = onAnime4kToggle,
+        onAnime4kPresetChange = onAnime4kPresetChange,
         onQualityChange = onQualityChange,
         onPipClick = {},
         onCaptureScreenshot = onCaptureScreenshot,
