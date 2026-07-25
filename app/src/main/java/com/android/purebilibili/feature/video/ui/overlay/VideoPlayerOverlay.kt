@@ -586,7 +586,7 @@ fun VideoPlayerOverlay(
     anime4kEnabled: Boolean = false,
     anime4kAvailable: Boolean = false,
     anime4kBypassReason: Anime4KBypassReason = Anime4KBypassReason.DISABLED,
-    anime4kPreset: Anime4KPreset = Anime4KPreset.BALANCED,
+    anime4kPreset: Anime4KPreset = Anime4KPreset.FAST,
     onAnime4kToggle: (Boolean) -> Unit = {},
     onAnime4kPresetChange: (Anime4KPreset) -> Unit = {},
     // [New] AI Audio Translation

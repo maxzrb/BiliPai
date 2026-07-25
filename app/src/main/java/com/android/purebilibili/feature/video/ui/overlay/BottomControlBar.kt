@@ -261,9 +261,9 @@ internal fun shouldApplyNavigationBarPaddingToBottomControlBar(
 
 internal fun resolveFloatingControlPanelMinWidthDp(widthDp: Int): Int {
     return when {
-        widthDp >= 840 -> 216
-        widthDp >= 600 -> 196
-        else -> 176
+        widthDp >= 840 -> 184
+        widthDp >= 600 -> 176
+        else -> 168
     }
 }
 
@@ -367,7 +367,7 @@ fun BottomControlBar(
     subtitleControlCallbacks: SubtitleControlCallbacks = SubtitleControlCallbacks(),
     anime4kEnabled: Boolean = false,
     anime4kAvailable: Boolean = false,
-    anime4kPreset: Anime4KPreset = Anime4KPreset.BALANCED,
+    anime4kPreset: Anime4KPreset = Anime4KPreset.FAST,
     onAnime4kToggle: (Boolean) -> Unit = {},
     onAnime4kPresetChange: (Anime4KPreset) -> Unit = {},
     
@@ -996,7 +996,7 @@ fun BottomControlBar(
             ) {
                 Column(
                     modifier = Modifier
-                        .widthIn(min = floatingPanelMinWidthDp.dp)
+                        .width(floatingPanelMinWidthDp.dp)
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -1056,7 +1056,6 @@ fun BottomControlBar(
                         Anime4KMoreAction(
                             enabled = anime4kEnabled,
                             preset = anime4kPreset,
-                            minWidthDp = floatingPanelMinWidthDp,
                             onCheckedChange = onAnime4kToggle,
                             onPresetChange = onAnime4kPresetChange
                         )
@@ -1173,13 +1172,12 @@ private fun MoreActionTextButton(
 private fun Anime4KMoreAction(
     enabled: Boolean,
     preset: Anime4KPreset,
-    minWidthDp: Int,
     onCheckedChange: (Boolean) -> Unit,
     onPresetChange: (Anime4KPreset) -> Unit
 ) {
     Column(
         modifier = Modifier
-            .widthIn(min = minWidthDp.dp)
+            .fillMaxWidth()
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -1209,7 +1207,6 @@ private fun Anime4KMoreAction(
             ) {
                 listOf(
                     Anime4KPreset.FAST,
-                    Anime4KPreset.BALANCED,
                     Anime4KPreset.QUALITY
                 ).forEach { option ->
                     Anime4KIntensityOption(

@@ -22,7 +22,6 @@ internal fun Anime4KPresetOptions(
 ) {
     val options = listOf(
         Anime4KPreset.FAST,
-        Anime4KPreset.BALANCED,
         Anime4KPreset.QUALITY
     )
     Row(

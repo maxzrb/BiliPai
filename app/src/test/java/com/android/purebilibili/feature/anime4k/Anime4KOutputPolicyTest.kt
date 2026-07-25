@@ -10,11 +10,10 @@ import kotlin.test.assertTrue
 class Anime4KOutputPolicyTest {
 
     @Test
-    fun balancedProfile_usesKazumiEfficiencyChain() {
-        val profile = resolveAnime4KRenderProfile(Anime4KPreset.BALANCED)
+    fun efficiencyProfile_usesCompleteKazumiLiteChain() {
+        val profile = resolveAnime4KRenderProfile(Anime4KPreset.FAST)
 
         assertEquals(Anime4KShaderChain.KAZUMI_EFFICIENCY, profile.shaderChain)
-        assertEquals(1440, profile.maxInputLongEdgePx)
         assertEquals(
             listOf(
                 "Anime4K_Clamp_Highlights.glsl",
@@ -31,22 +30,31 @@ class Anime4KOutputPolicyTest {
 
     @Test
     fun qualityProfile_usesKazumiVlChain() {
-        val balanced = resolveAnime4KRenderProfile(Anime4KPreset.BALANCED)
         val quality = resolveAnime4KRenderProfile(Anime4KPreset.QUALITY)
 
         assertEquals(Anime4KShaderChain.KAZUMI_QUALITY, quality.shaderChain)
-        assertTrue(quality.maxInputLongEdgePx > balanced.maxInputLongEdgePx)
         assertTrue(resolveAnime4KShaderFiles(quality.shaderChain).any { "_VL." in it })
     }
 
     @Test
-    fun processingSize_preservesAspectRatioWithinBudget() {
+    fun processingSize_preservesNative720pForEfficiencyMode() {
         assertEquals(
-            2160 to 1215,
+            1280 to 720,
             resolveAnime4KInputSize(
-                inputWidth = 3840,
-                inputHeight = 2160,
-                profile = resolveAnime4KRenderProfile(Anime4KPreset.QUALITY),
+                inputWidth = 1280,
+                inputHeight = 720,
+                glMaxTextureSize = 4096
+            )
+        )
+    }
+
+    @Test
+    fun processingSize_onlyClampsAtGpuTextureLimit() {
+        assertEquals(
+            4096 to 2304,
+            resolveAnime4KInputSize(
+                inputWidth = 7680,
+                inputHeight = 4320,
                 glMaxTextureSize = 4096
             )
         )
@@ -84,10 +92,4 @@ class Anime4KOutputPolicyTest {
         assertEquals(Anime4KBypassReason.NONE, decision.bypassReason)
     }
 
-    @Test
-    fun lowerPerformancePreset_stopsAtFast() {
-        assertEquals(Anime4KPreset.BALANCED, Anime4KPreset.QUALITY.lowerPerformancePreset())
-        assertEquals(Anime4KPreset.FAST, Anime4KPreset.BALANCED.lowerPerformancePreset())
-        assertEquals(null, Anime4KPreset.FAST.lowerPerformancePreset())
-    }
 }

@@ -2831,10 +2831,6 @@ fun VideoPlayerSection(
                                     anime4kPipelineFailed = true
                                     anime4kInputSurface = null
                                 }
-                                onPresetDowngradeRequested = { preset ->
-                                    Logger.w("VideoPlayerSection", "Anime4K 性能不足，已切换到 ${preset.name} 预设")
-                                    anime4kPlugin?.setPreset(preset)
-                                }
                                 updateConfig(anime4kConfig)
                                 updateInputSize(videoSizeState.first, videoSizeState.second)
                                 updateFlip(isFlippedHorizontal, isFlippedVertical)
@@ -2854,10 +2850,6 @@ fun VideoPlayerSection(
                                 Logger.e("VideoPlayerSection", "Anime4K 管线不可用，已回退原始视频输出", error)
                                 anime4kPipelineFailed = true
                                 anime4kInputSurface = null
-                            }
-                            surfaceView.onPresetDowngradeRequested = { preset ->
-                                Logger.w("VideoPlayerSection", "Anime4K 性能不足，已切换到 ${preset.name} 预设")
-                                anime4kPlugin?.setPreset(preset)
                             }
                             surfaceView.updateConfig(anime4kConfig)
                             surfaceView.updateInputSize(videoSizeState.first, videoSizeState.second)

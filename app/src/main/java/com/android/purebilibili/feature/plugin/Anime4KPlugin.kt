@@ -31,6 +31,8 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 private const val TAG = "Anime4KPlugin"
 
@@ -42,7 +44,7 @@ class Anime4KPlugin : Plugin {
     override val id: String = PLUGIN_ID
     override val name: String = "Anime4K 超分辨率"
     override val description: String = "使用 Kazumi 同款 Anime4K CNN 链实时重建动漫画面"
-    override val version: String = "2.0.0"
+    override val version: String = "2.1.0"
     override val author: String = "BiliPai项目组"
     override val capabilityManifest: PluginCapabilityManifest = PluginCapabilityManifest(
         pluginId = id,
@@ -83,7 +85,20 @@ class Anime4KPlugin : Plugin {
     private suspend fun loadConfig() {
         config = runCatching {
             val raw = PluginStore.getConfigJson(PluginManager.getContext(), id)
-            if (raw.isNullOrBlank()) Anime4KConfig() else Json.decodeFromString<Anime4KConfig>(raw)
+            if (raw.isNullOrBlank()) {
+                Anime4KConfig()
+            } else {
+                val storedPreset = Json.parseToJsonElement(raw)
+                    .jsonObject["preset"]
+                    ?.jsonPrimitive
+                    ?.content
+                if (storedPreset == "BALANCED") {
+                    // 2.0.0 的中间档与 Kazumi 效率链相同，升级后归并到效率档。
+                    Anime4KConfig(preset = Anime4KPreset.FAST)
+                } else {
+                    Json.decodeFromString<Anime4KConfig>(raw)
+                }
+            }
         }.onFailure { error ->
             Logger.e(TAG, "读取 Anime4K 配置失败", error)
         }.getOrDefault(Anime4KConfig())
@@ -96,7 +111,6 @@ class Anime4KPlugin : Plugin {
         val options = remember {
             listOf(
                 Anime4KPreset.FAST,
-                Anime4KPreset.BALANCED,
                 Anime4KPreset.QUALITY
             )
         }
