@@ -1,6 +1,7 @@
 package com.android.purebilibili.feature.video.ui.components
 
 import androidx.media3.ui.AspectRatioFrameLayout
+import com.android.purebilibili.feature.anime4k.gl.Anime4KDisplayScaleMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -132,58 +133,11 @@ class VideoAspectRatioLayoutPolicyTest {
     }
 
     @Test
-    fun `GL fit keeps 16 to 9 source inside ultrawide container`() {
-        val layout = resolveVideoContentViewportLayout(
-            containerWidth = 2400,
-            containerHeight = 1080,
-            sourceWidth = 1920,
-            sourceHeight = 1080,
-            aspectRatio = VideoAspectRatio.FIT
-        )
-
-        assertEquals(1920, layout.width)
-        assertEquals(1080, layout.height)
-    }
-
-    @Test
-    fun `GL fill covers ultrawide container without stretching source`() {
-        val layout = resolveVideoContentViewportLayout(
-            containerWidth = 2400,
-            containerHeight = 1080,
-            sourceWidth = 1920,
-            sourceHeight = 1080,
-            aspectRatio = VideoAspectRatio.FILL
-        )
-
-        assertEquals(2400, layout.width)
-        assertEquals(1350, layout.height)
-    }
-
-    @Test
-    fun `GL fixed frame fits source within selected ratio`() {
-        val layout = resolveVideoContentViewportLayout(
-            containerWidth = 2400,
-            containerHeight = 1080,
-            sourceWidth = 1440,
-            sourceHeight = 1080,
-            aspectRatio = VideoAspectRatio.RATIO_16_9
-        )
-
-        assertEquals(1440, layout.width)
-        assertEquals(1080, layout.height)
-    }
-
-    @Test
-    fun `GL stretch is the only mode that deforms to full container`() {
-        val layout = resolveVideoContentViewportLayout(
-            containerWidth = 2400,
-            containerHeight = 1080,
-            sourceWidth = 1920,
-            sourceHeight = 1080,
-            aspectRatio = VideoAspectRatio.STRETCH
-        )
-
-        assertEquals(2400, layout.width)
-        assertEquals(1080, layout.height)
+    fun `video ratio modes map to matching Anime4K display modes`() {
+        assertEquals(Anime4KDisplayScaleMode.FIT, VideoAspectRatio.FIT.toAnime4KDisplayScaleMode())
+        assertEquals(Anime4KDisplayScaleMode.CROP, VideoAspectRatio.FILL.toAnime4KDisplayScaleMode())
+        assertEquals(Anime4KDisplayScaleMode.FIT, VideoAspectRatio.RATIO_16_9.toAnime4KDisplayScaleMode())
+        assertEquals(Anime4KDisplayScaleMode.FIT, VideoAspectRatio.RATIO_4_3.toAnime4KDisplayScaleMode())
+        assertEquals(Anime4KDisplayScaleMode.STRETCH, VideoAspectRatio.STRETCH.toAnime4KDisplayScaleMode())
     }
 }

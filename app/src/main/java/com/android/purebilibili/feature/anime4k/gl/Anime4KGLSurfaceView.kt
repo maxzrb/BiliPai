@@ -51,6 +51,11 @@ class Anime4KGLSurfaceView @JvmOverloads constructor(
         requestRender()
     }
 
+    fun updateDisplayScaleMode(scaleMode: Anime4KDisplayScaleMode) {
+        queueEvent { pipelineRenderer.setDisplayScaleMode(scaleMode) }
+        requestRender()
+    }
+
     override fun onResume() {
         super.onResume()
         queueEvent { pipelineRenderer.ensureInputSurface() }

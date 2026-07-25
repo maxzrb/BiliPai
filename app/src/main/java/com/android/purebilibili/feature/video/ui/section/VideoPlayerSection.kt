@@ -30,6 +30,7 @@ import com.android.purebilibili.feature.video.ui.components.resolveGesturePercen
 import com.android.purebilibili.feature.video.ui.components.shouldTriggerGesturePercentHaptic
 import com.android.purebilibili.feature.video.ui.components.resolveSafeVideoAspectRatio
 import com.android.purebilibili.feature.video.ui.components.resolveVideoViewportLayout
+import com.android.purebilibili.feature.video.ui.components.toAnime4KDisplayScaleMode
 import com.android.purebilibili.feature.video.ui.components.toFullscreenAspectRatio
 import com.android.purebilibili.feature.video.ui.components.toVideoAspectRatio
 import com.android.purebilibili.feature.video.ui.gesture.GestureLevelOverlayHost
@@ -2834,6 +2835,7 @@ fun VideoPlayerSection(
                                 updateConfig(anime4kConfig)
                                 updateInputSize(videoSizeState.first, videoSizeState.second)
                                 updateFlip(isFlippedHorizontal, isFlippedVertical)
+                                updateDisplayScaleMode(viewportAspectRatio.toAnime4KDisplayScaleMode())
                                 visibility = View.VISIBLE
                             }
                         },
@@ -2854,6 +2856,7 @@ fun VideoPlayerSection(
                             surfaceView.updateConfig(anime4kConfig)
                             surfaceView.updateInputSize(videoSizeState.first, videoSizeState.second)
                             surfaceView.updateFlip(isFlippedHorizontal, isFlippedVertical)
+                            surfaceView.updateDisplayScaleMode(viewportAspectRatio.toAnime4KDisplayScaleMode())
                             surfaceView.visibility = View.VISIBLE
                         },
                         modifier = with(density) {

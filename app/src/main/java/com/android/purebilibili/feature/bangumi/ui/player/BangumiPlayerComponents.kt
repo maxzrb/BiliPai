@@ -66,8 +66,8 @@ import com.android.purebilibili.core.theme.LocalUiPreset
 import com.android.purebilibili.feature.video.ui.components.AnimatedGesturePercentText
 import com.android.purebilibili.feature.video.ui.components.SponsorSkipButton
 import com.android.purebilibili.feature.video.ui.components.VideoAspectRatio
-import com.android.purebilibili.feature.video.ui.components.resolveVideoContentViewportLayout
 import com.android.purebilibili.feature.video.ui.components.resolveVideoViewportLayout
+import com.android.purebilibili.feature.video.ui.components.toAnime4KDisplayScaleMode
 import com.android.purebilibili.feature.video.ui.gesture.GestureLevelOverlayContent
 import com.android.purebilibili.feature.video.ui.gesture.GestureLevelOverlayStyle
 import com.android.purebilibili.feature.video.ui.gesture.resolveGestureLevelKind
@@ -198,9 +198,6 @@ fun BangumiPlayerView(
     var videoSizeState by remember(exoPlayer) {
         mutableStateOf(exoPlayer.videoSize.let { it.width to it.height })
     }
-    var videoPixelWidthHeightRatio by remember(exoPlayer) {
-        mutableFloatStateOf(exoPlayer.videoSize.pixelWidthHeightRatio)
-    }
     val anime4kOutputDecision = remember(
         anime4kPluginInfo?.enabled,
         anime4kGlesAvailable,
@@ -240,7 +237,6 @@ fun BangumiPlayerView(
         val playerListener = object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 videoSizeState = videoSize.width to videoSize.height
-                videoPixelWidthHeightRatio = videoSize.pixelWidthHeightRatio
             }
         }
         exoPlayer.addAnalyticsListener(analyticsListener)
@@ -458,26 +454,6 @@ fun BangumiPlayerView(
                     )
                 }
             }
-            val anime4kViewport = remember(
-                maxWidth,
-                maxHeight,
-                videoSizeState,
-                videoPixelWidthHeightRatio,
-                currentAspectRatio,
-                density
-            ) {
-                with(density) {
-                    resolveVideoContentViewportLayout(
-                        containerWidth = maxWidth.roundToPx(),
-                        containerHeight = maxHeight.roundToPx(),
-                        sourceWidth = videoSizeState.first,
-                        sourceHeight = videoSizeState.second,
-                        sourcePixelWidthHeightRatio = videoPixelWidthHeightRatio,
-                        aspectRatio = currentAspectRatio
-                    )
-                }
-            }
-
             // 视频输出统一交给路由，避免 PlayerView 与 Anime4K 同时争抢 Surface。
             AndroidView(
                 factory = { ctx ->
@@ -524,6 +500,7 @@ fun BangumiPlayerView(
                             }
                             updateConfig(anime4kConfig)
                             updateInputSize(videoSizeState.first, videoSizeState.second)
+                            updateDisplayScaleMode(currentAspectRatio.toAnime4KDisplayScaleMode())
                             visibility = View.VISIBLE
                         }
                     },
@@ -543,12 +520,13 @@ fun BangumiPlayerView(
                         }
                         surfaceView.updateConfig(anime4kConfig)
                         surfaceView.updateInputSize(videoSizeState.first, videoSizeState.second)
+                        surfaceView.updateDisplayScaleMode(currentAspectRatio.toAnime4KDisplayScaleMode())
                         surfaceView.visibility = View.VISIBLE
                     },
                     modifier = with(density) {
                         Modifier.requiredSize(
-                            width = anime4kViewport.width.toDp(),
-                            height = anime4kViewport.height.toDp()
+                            width = playerFrameViewport.width.toDp(),
+                            height = playerFrameViewport.height.toDp()
                         )
                     }
                 )

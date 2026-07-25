@@ -42,6 +42,7 @@ internal class Anime4KPipelineRenderer(
     private var inputHeight = 0
     private var flipHorizontal = false
     private var flipVertical = false
+    private var displayScaleMode = Anime4KDisplayScaleMode.FIT
     private var config = initialConfig
     private var maxTextureSize = 1
     private var maxTextureUnits = 1
@@ -163,6 +164,10 @@ internal class Anime4KPipelineRenderer(
     fun setFlip(horizontal: Boolean, vertical: Boolean) {
         flipHorizontal = horizontal
         flipVertical = vertical
+    }
+
+    fun setDisplayScaleMode(scaleMode: Anime4KDisplayScaleMode) {
+        displayScaleMode = scaleMode
     }
 
     fun ensureInputSurface() {
@@ -400,6 +405,7 @@ internal class Anime4KPipelineRenderer(
     private fun drawDisplay(target: FboTarget) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
         GLES30.glViewport(0, 0, outputWidth, outputHeight)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         GLES30.glUseProgram(displayProgram)
         bindTexture(
             program = displayProgram,
@@ -408,7 +414,21 @@ internal class Anime4KPipelineRenderer(
             texture = target.texture,
             unit = 0
         )
-        setVertexUniforms(displayProgram, identityMatrix, false, false)
+        val displayTransform = resolveAnime4KDisplayTransform(
+            outputWidth = outputWidth,
+            outputHeight = outputHeight,
+            sourceWidth = inputWidth.takeIf { it > 0 } ?: target.width,
+            sourceHeight = inputHeight.takeIf { it > 0 } ?: target.height,
+            scaleMode = displayScaleMode
+        )
+        setVertexUniforms(
+            program = displayProgram,
+            matrix = identityMatrix,
+            horizontalFlip = false,
+            verticalFlip = false,
+            positionScaleX = displayTransform.scaleX,
+            positionScaleY = displayTransform.scaleY
+        )
         QuadRenderUtils.draw(displayProgram)
     }
 
@@ -464,7 +484,9 @@ internal class Anime4KPipelineRenderer(
         program: Int,
         matrix: FloatArray,
         horizontalFlip: Boolean,
-        verticalFlip: Boolean
+        verticalFlip: Boolean,
+        positionScaleX: Float = 1f,
+        positionScaleY: Float = 1f
     ) {
         GLES30.glUniformMatrix4fv(
             GLES30.glGetUniformLocation(program, "uTexMatrix"),
@@ -477,6 +499,11 @@ internal class Anime4KPipelineRenderer(
             GLES30.glGetUniformLocation(program, "uFlip"),
             if (horizontalFlip) 1f else 0f,
             if (verticalFlip) 1f else 0f
+        )
+        GLES30.glUniform2f(
+            GLES30.glGetUniformLocation(program, "uPositionScale"),
+            positionScaleX,
+            positionScaleY
         )
     }
 
